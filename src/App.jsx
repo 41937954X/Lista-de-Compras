@@ -83,24 +83,40 @@ export default function App() {
   };
 
   // 3. Carregar Dados da Semana Selecionada
-  useEffect(() => {
-    if (selectedWeek) {
+useEffect(() => {
+    if (selectedWeek && session?.user?.id) {
       fetchItems();
       fetchNotes();
 
       const channel = supabase
-        .channel('schema-db-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'list_items', filter: `week_id=eq.${selectedWeek.id}` }, () => fetchItems())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'week_notes', filter: `week_id=eq.${selectedWeek.id}` }, () => fetchNotes())
+        .channel(`schema-db-changes-${selectedWeek.id}-${session.user.id}`)
+        .on(
+          'postgres_changes', 
+          { event: '*', schema: 'public', table: 'list_items', filter: `week_id=eq.${selectedWeek.id}` }, 
+          () => fetchItems()
+        )
+        .on(
+          'postgres_changes', 
+          { event: '*', schema: 'public', table: 'week_notes', filter: `week_id=eq.${selectedWeek.id}` }, 
+          () => fetchNotes()
+        )
         .subscribe();
 
       return () => supabase.removeChannel(channel);
     }
-  }, [selectedWeek]);
+  }, [selectedWeek, session]);
 
   const fetchItems = async () => {
-    const { data } = await supabase.from('list_items').select('*').eq('week_id', selectedWeek.id).order('created_at', { ascending: true });
-    if (data) setItems(data);
+   if (!session?.user?.id) return;
+
+   const { data } = await supabase
+    .from('list_items')
+    .select('*')
+    .eq('week_id', selectedWeek.id)
+    .eq('user_id', session.user.id) // 🔒 Filtra apenas os itens do usuário conectado
+    .order('created_at', { ascending: true });
+
+   if (data) setItems(data);
   };
 
   const fetchNotes = async () => {
@@ -124,7 +140,8 @@ export default function App() {
       category: activeTab,
       item_name: newItemName.trim(),
       quantity: newItemQty.trim(),
-      item_type: itemType
+      item_type: itemType,
+      user_id: session.user.id
     }]);
 
     if (!error) {
@@ -187,7 +204,7 @@ export default function App() {
           <h1 className="text-2xl font-bold text-center text-slate-800 mb-6">Lista de Compras 📋</h1>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">E-mail Familiar</label>
+              <label className="block text-sm font-medium text-slate-600 mb-1">E-mail</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full p-3 border border-slate-300 rounded-xl outline-none focus:border-blue-500" />
             </div>
             <div>
@@ -366,7 +383,7 @@ export default function App() {
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
-          <Calendar className="w-3.5 h-3.5" /> Atuais e Próximas ({upcomingWeeks.length})
+          <Calendar className="w-3.5 h-3.5" /> Atual e Próximas ({upcomingWeeks.length})
         </button>
 
         <button
