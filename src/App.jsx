@@ -120,8 +120,16 @@ useEffect(() => {
   };
 
   const fetchNotes = async () => {
-    const { data } = await supabase.from('week_notes').select('notes').eq('week_id', selectedWeek.id).single();
-    setNoteText(data ? data.notes : '');
+   if (!session?.user?.id) return;
+
+   const { data } = await supabase
+    .from('week_notes')
+    .select('notes')
+    .eq('week_id', selectedWeek.id)
+    .eq('user_id', session.user.id) // 🔒 Filtra as notas do usuário logado
+    .maybeSingle();
+
+   setNoteText(data ? data.notes : '');
   };
 
   // Ações do App
@@ -180,8 +188,24 @@ useEffect(() => {
   };
 
   const saveNotes = async (text) => {
-    setNoteText(text);
-    await supabase.from('week_notes').upsert({ week_id: selectedWeek.id, notes: text }, { onConflict: 'week_id' });
+   setNoteText(text);
+   if (!session?.user?.id) return;
+
+   // Declaramos { error } corretamente para evitar o ReferenceError
+   const { error } = await supabase
+    .from('week_notes')
+    .upsert(
+      { 
+        week_id: selectedWeek.id, 
+        user_id: session.user.id, 
+        notes: text 
+      }, 
+      { onConflict: 'week_id, user_id' } // 🔒 Garante o alinhamento com a chave única
+    );
+
+   if (error) {
+    console.error('Erro detalhado ao salvar nota:', error.message);
+   }
   };
 
   // Data de Hoje para Filtros
