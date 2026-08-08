@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
   ClipboardList, Apple, FileText, LogOut, CheckSquare, 
   Square, Plus, Trash2, ArrowLeft, History, Calendar, 
-  Utensils, CupSoda, Sparkles, ShoppingCart, Bath, MoreHorizontal  
+  Utensils, CupSoda, Sparkles, ShoppingCart, Bath, Home, Dog 
 } from 'lucide-react';
 
 // Função para formatar a data de AAAA-MM-DD para DD/MM/AAAA
@@ -44,13 +44,20 @@ const getItemTypeDetails = (type) => {
         textColor: 'text-green-900',
         icon: <Bath className="w-4 h-4 text-green-600" />
       };
-    case 'outros':
-  return {
-    label: 'Outros',
-    bgColor: 'bg-slate-100 border-slate-300',
-    textColor: 'text-slate-800',
-    icon: <MoreHorizontal className="w-4 h-4 text-slate-600" />
-  };
+    case 'utilidades':
+      return {
+        label: 'Utilidades',
+        bgColor: 'bg-slate-100 border-slate-300',
+        textColor: 'text-slate-800',
+        icon: <Home className="w-4 h-4 text-slate-600" />
+      };
+    case 'pets':
+      return {
+        label: 'Pets',
+        bgColor: 'bg-pink-50/80 border-pink-200',
+        textColor: 'text-pink-900',
+        icon: <Dog className="w-4 h-4 text-pink-600" />
+      };
     default:
       return {
         label: 'Alimento',
@@ -74,7 +81,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [newItemName, setNewItemName] = useState('');
   const [newItemQty, setNewItemQty] = useState('');
-  const [itemType, setItemType] = useState('alimentos'); // 'alimentos', 'bebidas', 'limpeza', 'higiene', 'outros'
+  const [itemType, setItemType] = useState('alimentos'); // 'alimentos', 'bebidas', 'limpeza', 'higiene', 'pets', 'utilidades'
   const [noteText, setNoteText] = useState('');
 
   // 1. Controle de Sessão
@@ -258,8 +265,8 @@ useEffect(() => {
 
   // TELA 2: VISÃO DA SEMANA SELECIONADA
   if (selectedWeek) {
-    // Ordem de exibição: Alimentos (1), Bebidas (2), Limpeza (3), Higiene (4), Outros (5)
-    const typePriority = { alimentos: 1, bebidas: 2, limpeza: 3, higiene: 4, outros: 5 };
+    // Ordem de exibição: Alimentos (1), Bebidas (2), Limpeza (3), Higiene (4), Pets (5), Utilidades (6)
+    const typePriority = { alimentos: 1, bebidas: 2, limpeza: 3, higiene: 4, pets: 5, utilidades: 6 };
 
     const filteredItems = items
       .filter(i => i.category === activeTab)
@@ -354,7 +361,7 @@ useEffect(() => {
         {activeTab !== 'notas' && (
           <form onSubmit={handleAddItem} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-white border-t flex flex-col gap-2 shadow-lg z-20">
             {/* Seletor de Categoria */}
-            <div className="flex gap-1.5 text-xs">
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
               <button
                 type="button"
                 onClick={() => setItemType('alimentos')}
@@ -397,12 +404,22 @@ useEffect(() => {
 
               <button
                 type="button"
-                onClick={() => setItemType('outros')}
+                onClick={() => setItemType('pets')}
                 className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1 transition ${
-                  itemType === 'outros' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
+                  itemType === 'pets' ? 'bg-pink-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
                 }`}
               >
-                <MoreHorizontal className="w-3.5 h-3.5" /> Outros
+                <Dog className="w-3.5 h-3.5" /> Pets
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setItemType('utilidades')}
+                className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1 transition ${
+                  itemType === 'utilidades' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                <Home className="w-3.5 h-3.5" /> Utilidades
               </button>
             </div>
 
