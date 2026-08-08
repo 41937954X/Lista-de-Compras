@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
   ClipboardList, Apple, FileText, LogOut, CheckSquare, 
   Square, Plus, Trash2, ArrowLeft, History, Calendar, 
-  Utensils, CupSoda, Sparkles, ShoppingCart 
+  Utensils, CupSoda, Sparkles, ShoppingCart, Bath, MoreHorizontal  
 } from 'lucide-react';
 
 // Função para formatar a data de AAAA-MM-DD para DD/MM/AAAA
@@ -37,6 +37,20 @@ const getItemTypeDetails = (type) => {
         textColor: 'text-purple-900',
         icon: <Sparkles className="w-4 h-4 text-purple-600" />
       };
+    case 'higiene':
+      return {
+        label: 'Higiene',
+        bgColor: 'bg-green-50/80 border-green-200',
+        textColor: 'text-green-900',
+        icon: <Bath className="w-4 h-4 text-green-600" />
+      };
+    case 'outros':
+  return {
+    label: 'Outros',
+    bgColor: 'bg-slate-100 border-slate-300',
+    textColor: 'text-slate-800',
+    icon: <MoreHorizontal className="w-4 h-4 text-slate-600" />
+  };
     default:
       return {
         label: 'Alimento',
@@ -60,7 +74,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [newItemName, setNewItemName] = useState('');
   const [newItemQty, setNewItemQty] = useState('');
-  const [itemType, setItemType] = useState('alimentos'); // 'alimentos', 'bebidas', 'limpeza'
+  const [itemType, setItemType] = useState('alimentos'); // 'alimentos', 'bebidas', 'limpeza', 'higiene', 'outros'
   const [noteText, setNoteText] = useState('');
 
   // 1. Controle de Sessão
@@ -244,8 +258,8 @@ useEffect(() => {
 
   // TELA 2: VISÃO DA SEMANA SELECIONADA
   if (selectedWeek) {
-    // Ordem de exibição: Alimentos (1), Bebidas (2), Limpeza (3)
-    const typePriority = { alimentos: 1, bebidas: 2, limpeza: 3 };
+    // Ordem de exibição: Alimentos (1), Bebidas (2), Limpeza (3), Higiene (4), Outros (5)
+    const typePriority = { alimentos: 1, bebidas: 2, limpeza: 3, higiene: 4, outros: 5 };
 
     const filteredItems = items
       .filter(i => i.category === activeTab)
@@ -272,8 +286,19 @@ useEffect(() => {
           <button onClick={() => setActiveTab('feira')} className={`flex-1 py-3 flex justify-center items-center gap-2 border-b-2 font-medium text-sm ${activeTab === 'feira' ? 'border-green-600 text-green-600' : 'border-transparent text-slate-500'}`}>
             <Apple className="w-4 h-4" /> Feira
           </button>
-          <button onClick={() => setActiveTab('notas')} className={`flex-1 py-3 flex justify-center items-center gap-2 border-b-2 font-medium text-sm ${activeTab === 'notas' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-500'}`}>
-            <FileText className="w-4 h-4" /> Notas
+          <button 
+            onClick={() => setActiveTab('notas')} 
+            className={`flex-1 py-3 flex justify-center items-center gap-2 border-b-2 font-medium text-sm relative ${
+             activeTab === 'notas' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-500'
+            }`}
+          >
+            <FileText className="w-4 h-4" /> 
+            <span>Notas</span>
+
+            {/* 🔴 Indicador de nota preenchida */}
+            {noteText && noteText.trim() !== '' && (
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+            )}
           </button>
         </nav>
 
@@ -358,6 +383,26 @@ useEffect(() => {
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" /> Limpeza
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setItemType('higiene')}
+                className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1 transition ${
+                  itemType === 'higiene' ? 'bg-green-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                <Bath className="w-3.5 h-3.5" /> Higiene
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setItemType('outros')}
+                className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1 transition ${
+                  itemType === 'outros' ? 'bg-slate-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" /> Outros
               </button>
             </div>
 
