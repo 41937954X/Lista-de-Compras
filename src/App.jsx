@@ -5,15 +5,57 @@ import {
   Square, Plus, Trash2, ArrowLeft, History, Calendar, 
   Utensils, CupSoda, Sparkles, ShoppingCart, Bath, Home, Dog 
 } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
-// Função para formatar a data de AAAA-MM-DD para DD/MM/AAAA
+// Componente para transformar cada item em arrastável
+function SortableItem({ id, children }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : 'auto',
+    opacity: isDragging ? 0.6 : 1,
+    touchAction: 'none' // Melhora a experiência de arraste em telas sensíveis ao toque 📱
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
+// Formatador de datas (AAAA-MM-DD -> DD/MM/AAAA)
 const formatDateBR = (dateString) => {
   if (!dateString) return '';
   const [year, month, day] = dateString.split('-');
   return `${day}/${month}/${year}`;
 };
 
-// Detalhes visuais e ícones de cada categoria
+// Detalhes visuais das categorias
 const getItemTypeDetails = (type) => {
   switch (type) {
     case 'alimentos':
@@ -75,14 +117,26 @@ export default function App() {
   
   const [weeks, setWeeks] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
-  const [weekFilterTab, setWeekFilterTab] = useState('upcoming'); // 'upcoming' ou 'past'
+  const [weekFilterTab, setWeekFilterTab] = useState('upcoming');
   
-  const [activeTab, setActiveTab] = useState('supermercado'); // 'supermercado', 'feira', 'notas'
+  const [activeTab, setActiveTab] = useState('supermercado');
   const [items, setItems] = useState([]);
   const [newItemName, setNewItemName] = useState('');
   const [newItemQty, setNewItemQty] = useState('');
-  const [itemType, setItemType] = useState('alimentos'); // 'alimentos', 'bebidas', 'limpeza', 'higiene', 'pets', 'utilidades'
+  const [itemType, setItemType] = useState('alimentos');
   const [noteText, setNoteText] = useState('');
+
+  // Sensores para o Drag and Drop (Mouse e Touch)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Evita disparar o arraste com cliques curtos
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // 1. Controle de Sessão
   useEffect(() => {
@@ -104,7 +158,7 @@ export default function App() {
   };
 
   // 3. Carregar Dados da Semana Selecionada
-useEffect(() => {
+  useEffect(() => {
     if (selectedWeek && session?.user?.id) {
       fetchItems();
       fetchNotes();
@@ -128,29 +182,49 @@ useEffect(() => {
   }, [selectedWeek, session]);
 
   const fetchItems = async () => {
-   if (!session?.user?.id) return;
+    if (!session?.user?.id) return;
 
-   const { data } = await supabase
-    .from('list_items')
-    .select('*')
-    .eq('week_id', selectedWeek.id)
-    .eq('user_id', session.user.id) // 🔒 Filtra apenas os itens do usuário conectado
-    .order('created_at', { ascending: true });
+    const { data } = await supabase
+      .from('list_items')
+      .select('*')
+      .eq('week_id', selectedWeek.id)
+      .eq('user_id', session.user.id)
+      .order('position', { ascending: true }); // Ordena por posição para respeitar a reordenação
 
-   if (data) setItems(data);
+    if (data) setItems(data);
   };
 
   const fetchNotes = async () => {
-   if (!session?.user?.id) return;
+    if (!session?.user?.id) return;
 
-   const { data } = await supabase
-    .from('week_notes')
-    .select('notes')
-    .eq('week_id', selectedWeek.id)
-    .eq('user_id', session.user.id) // 🔒 Filtra as notas do usuário logado
-    .maybeSingle();
+    const { data } = await supabase
+      .from('week_notes')
+      .select('notes')
+      .eq('week_id', selectedWeek.id)
+      .eq('user_id', session.user.id)
+      .maybeSingle();
 
-   setNoteText(data ? data.notes : '');
+    setNoteText(data ? data.notes : '');
+  };
+
+  // Tratar o fim do movimento de arrastar 🔄
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = items.findIndex((item) => item.id === active.id);
+    const newIndex = items.findIndex((item) => item.id === over.id);
+
+    const reorderedItems = arrayMove(items, oldIndex, newIndex);
+    setItems(reorderedItems);
+
+    // Atualiza a posição de cada item alterado no Supabase ⚡
+    for (let index = 0; index < reorderedItems.length; index++) {
+      await supabase
+        .from('list_items')
+        .update({ position: index })
+        .eq('id', reorderedItems[index].id);
+    }
   };
 
   // Ações do App
@@ -164,13 +238,17 @@ useEffect(() => {
     e.preventDefault();
     if (!newItemName.trim()) return;
 
+    // Novo item é inserido ao final da lista
+    const nextPosition = items.length;
+
     const { error } = await supabase.from('list_items').insert([{
       week_id: selectedWeek.id,
       category: activeTab,
       item_name: newItemName.trim(),
       quantity: newItemQty.trim(),
       item_type: itemType,
-      user_id: session.user.id
+      user_id: session.user.id,
+      position: nextPosition
     }]);
 
     if (!error) {
@@ -209,27 +287,26 @@ useEffect(() => {
   };
 
   const saveNotes = async (text) => {
-   setNoteText(text);
-   if (!session?.user?.id) return;
+    setNoteText(text);
+    if (!session?.user?.id) return;
 
-   // Declaramos { error } corretamente para evitar o ReferenceError
-   const { error } = await supabase
-    .from('week_notes')
-    .upsert(
-      { 
-        week_id: selectedWeek.id, 
-        user_id: session.user.id, 
-        notes: text 
-      }, 
-      { onConflict: 'week_id, user_id' } // 🔒 Garante o alinhamento com a chave única
-    );
+    const { error } = await supabase
+      .from('week_notes')
+      .upsert(
+        { 
+          week_id: selectedWeek.id, 
+          user_id: session.user.id, 
+          notes: text 
+        }, 
+        { onConflict: 'week_id, user_id' }
+      );
 
-   if (error) {
-    console.error('Erro detalhado ao salvar nota:', error.message);
-   }
+    if (error) {
+      console.error('Erro detalhado ao salvar nota:', error.message);
+    }
   };
 
-  // Data de Hoje para Filtros
+  // Datas
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -265,12 +342,7 @@ useEffect(() => {
 
   // TELA 2: VISÃO DA SEMANA SELECIONADA
   if (selectedWeek) {
-    // Ordem de exibição: Alimentos (1), Bebidas (2), Limpeza (3), Higiene (4), Pets (5), Utilidades (6)
-    const typePriority = { alimentos: 1, bebidas: 2, limpeza: 3, higiene: 4, pets: 5, utilidades: 6 };
-
-    const filteredItems = items
-      .filter(i => i.category === activeTab)
-      .sort((a, b) => (typePriority[a.item_type] || 1) - (typePriority[b.item_type] || 1));
+    const filteredItems = items.filter(i => i.category === activeTab);
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col max-w-md mx-auto border-x border-slate-200">
@@ -285,7 +357,7 @@ useEffect(() => {
           </div>
         </header>
 
-        {/* Abas da Semana */}
+        {/* Abas */}
         <nav className="flex bg-white border-b sticky top-[65px] z-10">
           <button onClick={() => setActiveTab('supermercado')} className={`flex-1 py-3 flex justify-center items-center gap-2 border-b-2 font-medium text-sm ${activeTab === 'supermercado' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
             <ShoppingCart className="w-4 h-4" /> Mercado
@@ -296,13 +368,11 @@ useEffect(() => {
           <button 
             onClick={() => setActiveTab('notas')} 
             className={`flex-1 py-3 flex justify-center items-center gap-2 border-b-2 font-medium text-sm relative ${
-             activeTab === 'notas' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-500'
+              activeTab === 'notas' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-500'
             }`}
           >
             <FileText className="w-4 h-4" /> 
             <span>Notas</span>
-
-            {/* 🔴 Indicador de nota preenchida */}
             {noteText && noteText.trim() !== '' && (
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
             )}
@@ -319,48 +389,47 @@ useEffect(() => {
               className="w-full h-64 p-4 border rounded-2xl bg-amber-50/50 border-amber-200 focus:outline-none text-slate-700 resize-none shadow-inner"
             />
           ) : (
-            <div className="space-y-2.5">
-              {filteredItems.length === 0 ? (
-                <p className="text-center text-slate-400 text-sm py-8">Nenhum item adicionado nesta lista.</p>
-              ) : (
-                filteredItems.map((item) => {
-                  const typeDetails = getItemTypeDetails(item.item_type);
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={filteredItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2.5">
+                  {filteredItems.length === 0 ? (
+                    <p className="text-center text-slate-400 text-sm py-8">Nenhum item adicionado nesta lista.</p>
+                  ) : (
+                    filteredItems.map((item) => {
+                      const typeDetails = getItemTypeDetails(item.item_type);
 
-                  return (
-                    <div 
-                      key={item.id} 
-                      className={`flex items-center justify-between p-3 border rounded-xl shadow-sm transition ${typeDetails.bgColor}`}
-                    >
-                      <button onClick={() => toggleItem(item.id, item.is_completed)} className="flex items-center gap-3 text-left flex-1 pr-2">
-                        {item.is_completed ? <CheckSquare className="w-5 h-5 text-green-600 shrink-0" /> : <Square className="w-5 h-5 text-slate-400 shrink-0" />}
-                        <span className={`${item.is_completed ? 'line-through text-slate-400' : `${typeDetails.textColor} font-medium`}`}>
-                          {item.item_name} {item.quantity && <span className="text-xs opacity-75 font-normal">({item.quantity})</span>}
-                        </span>
-                      </button>
+                      return (
+                        <SortableItem key={item.id} id={item.id}>
+                          <div className={`flex items-center justify-between p-3 border rounded-xl shadow-sm transition ${typeDetails.bgColor}`}>
+                            <button onClick={() => toggleItem(item.id, item.is_completed)} className="flex items-center gap-3 text-left flex-1 pr-2">
+                              {item.is_completed ? <CheckSquare className="w-5 h-5 text-green-600 shrink-0" /> : <Square className="w-5 h-5 text-slate-400 shrink-0" />}
+                              <span className={`${item.is_completed ? 'line-through text-slate-400' : `${typeDetails.textColor} font-medium`}`}>
+                                {item.item_name} {item.quantity && <span className="text-xs opacity-75 font-normal">({item.quantity})</span>}
+                              </span>
+                            </button>
 
-                      <div className="flex items-center gap-2">
-                        {/* Ícone da Categoria */}
-                        <span title={typeDetails.label} className="p-1">
-                          {typeDetails.icon}
-                        </span>
-
-                        {/* Botão Deletar */}
-                        <button onClick={() => deleteItem(item.id)} className="text-slate-400 hover:text-red-500 p-1 transition">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+                            <div className="flex items-center gap-2">
+                              <span title={typeDetails.label} className="p-1">
+                                {typeDetails.icon}
+                              </span>
+                              <button onClick={() => deleteItem(item.id)} className="text-slate-400 hover:text-red-500 p-1 transition">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </SortableItem>
+                      );
+                    })
+                  )}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </main>
 
-        {/* Formulário Fixo Inferior com Seletor de Categoria */}
+        {/* Formulário Fixo Inferior */}
         {activeTab !== 'notas' && (
           <form onSubmit={handleAddItem} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-3 bg-white border-t flex flex-col gap-2 shadow-lg z-20">
-            {/* Seletor de Categoria */}
             <div className="grid grid-cols-3 gap-1.5 text-xs">
               <button
                 type="button"
@@ -423,7 +492,6 @@ useEffect(() => {
               </button>
             </div>
 
-            {/* Inputs de Texto, Quantidade e Botão Adicionar */}
             <div className="flex gap-2">
               <input 
                 type="text" 
@@ -459,7 +527,6 @@ useEffect(() => {
         </button>
       </header>
 
-      {/* Navegação entre Próximas e Anteriores */}
       <div className="p-3 bg-white border-b flex gap-2">
         <button
           onClick={() => setWeekFilterTab('upcoming')}
