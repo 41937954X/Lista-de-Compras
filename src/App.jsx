@@ -22,6 +22,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+// Ordem fixa das categorias na tela
+const CATEGORY_ORDER = ['alimentos', 'bebidas', 'limpeza', 'higiene', 'pets', 'utilidades'];
+
 // Componente para transformar cada item em arrastável
 function SortableItem({ id, children }) {
   const {
@@ -38,7 +41,7 @@ function SortableItem({ id, children }) {
     transition,
     zIndex: isDragging ? 50 : 'auto',
     opacity: isDragging ? 0.6 : 1,
-    touchAction: 'none' // Melhora a experiência de arraste em telas sensíveis ao toque 📱
+    touchAction: 'none'
   };
 
   return (
@@ -60,14 +63,14 @@ const getItemTypeDetails = (type) => {
   switch (type) {
     case 'alimentos':
       return {
-        label: 'Alimento',
+        label: 'Alimentos',
         bgColor: 'bg-amber-50/80 border-amber-200',
         textColor: 'text-amber-900',
         icon: <Utensils className="w-4 h-4 text-amber-600" />
       };
     case 'bebidas':
       return {
-        label: 'Bebida',
+        label: 'Bebidas',
         bgColor: 'bg-blue-50/80 border-blue-200',
         textColor: 'text-blue-900',
         icon: <CupSoda className="w-4 h-4 text-blue-600" />
@@ -102,7 +105,7 @@ const getItemTypeDetails = (type) => {
       };
     default:
       return {
-        label: 'Alimento',
+        label: 'Alimentos',
         bgColor: 'bg-slate-50 border-slate-200',
         textColor: 'text-slate-800',
         icon: <Utensils className="w-4 h-4 text-slate-500" />
@@ -126,11 +129,11 @@ export default function App() {
   const [itemType, setItemType] = useState('alimentos');
   const [noteText, setNoteText] = useState('');
 
-  // Sensores para o Drag and Drop (Mouse e Touch)
+  // Sensores para o Drag and Drop
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // Evita disparar o arraste com cliques curtos
+        distance: 8,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -189,7 +192,7 @@ export default function App() {
       .select('*')
       .eq('week_id', selectedWeek.id)
       .eq('user_id', session.user.id)
-      .order('position', { ascending: true }); // Ordena por posição para respeitar a reordenação
+      .order('position', { ascending: true });
 
     if (data) setItems(data);
   };
@@ -207,23 +210,51 @@ export default function App() {
     setNoteText(data ? data.notes : '');
   };
 
-  // Tratar o fim do movimento de arrastar 🔄
+  // Tratar o fim do movimento de arrastar (Restrito à mesma categoria) 🔄
   const handleDragEnd = async (event) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = items.findIndex((item) => item.id === active.id);
-    const newIndex = items.findIndex((item) => item.id === over.id);
+    const activeItem = items.find((item) => item.id === active.id);
+    const overItem = items.find((item) => item.id === over.id);
 
-    const reorderedItems = arrayMove(items, oldIndex, newIndex);
-    setItems(reorderedItems);
+    // Mover apenas se pertencerem ao mesmo tipo e mesma aba
+    if (
+      activeItem && 
+      overItem && 
+      activeItem.item_type === overItem.item_type && 
+      activeItem.category === overItem.category
+    ) {
+      const categoryType = activeItem.item_type;
 
-    // Atualiza a posição de cada item alterado no Supabase ⚡
-    for (let index = 0; index < reorderedItems.length; index++) {
-      await supabase
-        .from('list_items')
-        .update({ position: index })
-        .eq('id', reorderedItems[index].id);
+      // Filtra os itens desse grupo especificamente
+      const groupItems = items.filter(
+        (i) => i.category === activeTab && i.item_type === categoryType
+      );
+
+      const oldIndex = groupItems.findIndex((item) => item.id === active.id);
+      const newIndex = groupItems.findIndex((item) => item.id === over.id);
+
+      const reorderedGroup = arrayMove(groupItems, oldIndex, newIndex);
+
+      // Atualiza o estado local imediatamente
+      const updatedItems = items.map((item) => {
+        if (item.category === activeTab && item.item_type === categoryType) {
+          const indexInGroup = reorderedGroup.findIndex((g) => g.id === item.id);
+          return { ...item, position: indexInGroup };
+        }
+        return item;
+      });
+
+      setItems(updatedItems);
+
+      // Persiste as novas posições no Supabase
+      for (let index = 0; index < reorderedGroup.length; index++) {
+        await supabase
+          .from('list_items')
+          .update({ position: index })
+          .eq('id', reorderedGroup[index].id);
+      }
     }
   };
 
@@ -238,8 +269,14 @@ export default function App() {
     e.preventDefault();
     if (!newItemName.trim()) return;
 
-    // Novo item é inserido ao final da lista
-    const nextPosition = items.length;
+    // Calcula a próxima posição dentro da categoria selecionada
+    const groupItems = items.filter(
+      (i) => i.category === activeTab && i.item_type === itemType
+    );
+    const maxPosition = groupItems.length > 0 
+      ? Math.max(...groupItems.map((i) => i.position || 0)) 
+      : -1;
+    const nextPosition = maxPosition + 1;
 
     const { error } = await supabase.from('list_items').insert([{
       week_id: selectedWeek.id,
@@ -342,7 +379,7 @@ export default function App() {
 
   // TELA 2: VISÃO DA SEMANA SELECIONADA
   if (selectedWeek) {
-    const filteredItems = items.filter(i => i.category === activeTab);
+    const activeTabItems = items.filter(i => i.category === activeTab);
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col max-w-md mx-auto border-x border-slate-200">
@@ -390,39 +427,56 @@ export default function App() {
             />
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={filteredItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
-                <div className="space-y-2.5">
-                  {filteredItems.length === 0 ? (
-                    <p className="text-center text-slate-400 text-sm py-8">Nenhum item adicionado nesta lista.</p>
-                  ) : (
-                    filteredItems.map((item) => {
-                      const typeDetails = getItemTypeDetails(item.item_type);
+              {activeTabItems.length === 0 ? (
+                <p className="text-center text-slate-400 text-sm py-8">Nenhum item adicionado nesta lista.</p>
+              ) : (
+                CATEGORY_ORDER.map((typeKey) => {
+                  // Filtra os itens da categoria atual ordenados por posição
+                  const groupItems = activeTabItems
+                    .filter((i) => (i.item_type || 'alimentos') === typeKey)
+                    .sort((a, b) => (a.position || 0) - (b.position || 0));
 
-                      return (
-                        <SortableItem key={item.id} id={item.id}>
-                          <div className={`flex items-center justify-between p-3 border rounded-xl shadow-sm transition ${typeDetails.bgColor}`}>
-                            <button onClick={() => toggleItem(item.id, item.is_completed)} className="flex items-center gap-3 text-left flex-1 pr-2">
-                              {item.is_completed ? <CheckSquare className="w-5 h-5 text-green-600 shrink-0" /> : <Square className="w-5 h-5 text-slate-400 shrink-0" />}
-                              <span className={`${item.is_completed ? 'line-through text-slate-400' : `${typeDetails.textColor} font-medium`}`}>
-                                {item.item_name} {item.quantity && <span className="text-xs opacity-75 font-normal">({item.quantity})</span>}
-                              </span>
-                            </button>
+                  if (groupItems.length === 0) return null;
 
-                            <div className="flex items-center gap-2">
-                              <span title={typeDetails.label} className="p-1">
-                                {typeDetails.icon}
-                              </span>
-                              <button onClick={() => deleteItem(item.id)} className="text-slate-400 hover:text-red-500 p-1 transition">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </SortableItem>
-                      );
-                    })
-                  )}
-                </div>
-              </SortableContext>
+                  const typeDetails = getItemTypeDetails(typeKey);
+
+                  return (
+                    <div key={typeKey} className="mb-5">
+                      {/* Título do Grupo/Categoria */}
+                      <div className="flex items-center gap-2 mb-2 px-1">
+                        {typeDetails.icon}
+                        <h2 className={`font-semibold text-sm tracking-wide ${typeDetails.textColor}`}>
+                          {typeDetails.label}
+                        </h2>
+                      </div>
+
+                      {/* Contexto de Drag & Drop para este Grupo */}
+                      <SortableContext items={groupItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          {groupItems.map((item) => (
+                            <SortableItem key={item.id} id={item.id}>
+                              <div className={`flex items-center justify-between p-3 border rounded-xl shadow-sm transition ${typeDetails.bgColor}`}>
+                                <button onClick={() => toggleItem(item.id, item.is_completed)} className="flex items-center gap-3 text-left flex-1 pr-2">
+                                  {item.is_completed ? <CheckSquare className="w-5 h-5 text-green-600 shrink-0" /> : <Square className="w-5 h-5 text-slate-400 shrink-0" />}
+                                  <span className={`${item.is_completed ? 'line-through text-slate-400' : `${typeDetails.textColor} font-medium`}`}>
+                                    {item.item_name} {item.quantity && <span className="text-xs opacity-75 font-normal">({item.quantity})</span>}
+                                  </span>
+                                </button>
+
+                                <div className="flex items-center gap-2">
+                                  <button onClick={() => deleteItem(item.id)} className="text-slate-400 hover:text-red-500 p-1 transition">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            </SortableItem>
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </div>
+                  );
+                })
+              )}
             </DndContext>
           )}
         </main>
