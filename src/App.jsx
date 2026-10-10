@@ -211,14 +211,13 @@ export default function App() {
   };
 
   // Tratar o fim do movimento de arrastar (Restrito à mesma categoria) 🔄
-  const handleDragEnd = async (event) => {
+const handleDragEnd = async (event) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
     const activeItem = items.find((item) => item.id === active.id);
     const overItem = items.find((item) => item.id === over.id);
 
-    // Mover apenas se pertencerem ao mesmo tipo e mesma aba
     if (
       activeItem && 
       overItem && 
@@ -227,28 +226,30 @@ export default function App() {
     ) {
       const categoryType = activeItem.item_type;
 
-      // Filtra os itens desse grupo especificamente
+      // 1. Pega os itens atuais daquela categoria exata ordenados pela posição
       const groupItems = items.filter(
         (i) => i.category === activeTab && i.item_type === categoryType
-      );
+      ).sort((a, b) => (a.position || 0) - (b.position || 0));
 
       const oldIndex = groupItems.findIndex((item) => item.id === active.id);
       const newIndex = groupItems.findIndex((item) => item.id === over.id);
 
+      // 2. Reordena usando o arrayMove do dnd-kit de forma limpa
       const reorderedGroup = arrayMove(groupItems, oldIndex, newIndex);
 
-      // Atualiza o estado local imediatamente
+      // 3. Atualiza o estado global mantendo as outras categorias intactas
       const updatedItems = items.map((item) => {
         if (item.category === activeTab && item.item_type === categoryType) {
-          const indexInGroup = reorderedGroup.findIndex((g) => g.id === item.id);
-          return { ...item, position: indexInGroup };
+          const foundIndex = reorderedGroup.findIndex((g) => g.id === item.id);
+          // Se encontrou no grupo reordenado, atualiza a posição nova. Senão, mantém o item.
+          return foundIndex !== -1 ? { ...item, position: foundIndex } : item;
         }
         return item;
       });
 
       setItems(updatedItems);
 
-      // Persiste as novas posições no Supabase
+      // 4. Salva a nova sequência correta no Supabase
       for (let index = 0; index < reorderedGroup.length; index++) {
         await supabase
           .from('list_items')
