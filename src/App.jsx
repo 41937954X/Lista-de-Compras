@@ -148,19 +148,94 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Buscar Semanas
+  // 2. Função para gerar as 52 semanas do ano automaticamente 📅
+const generateWeeksForYear = async (targetYear) => {
+    const { data: existingWeeks } = await supabase
+      .from('weeks')
+      .select('id')
+      .eq('year', targetYear);
+
+    if (existingWeeks && existingWeeks.length > 0) return;
+
+    const weeksToInsert = [];
+    const formatDateStr = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    // Semana 1: Começa em 01/01 e vai até o primeiro domingo
+    let startDate = new Date(targetYear, 0, 1);
+    let endDate = new Date(startDate);
+    while (endDate.getDay() !== 0) {
+      endDate.setDate(endDate.getDate() + 1);
+    }
+
+    weeksToInsert.push({
+      week_number: 1,
+      year: targetYear,
+      start_date: formatDateStr(startDate),
+      end_date: formatDateStr(endDate)
+    });
+
+    // Semanas 2 a 52: Segunda a domingo
+    let currentMonday = new Date(endDate);
+    currentMonday.setDate(currentMonday.getDate() + 1);
+    let currentSunday;
+
+    for (let w = 2; w <= 52; w++) {
+      currentSunday = new Date(currentMonday);
+      currentSunday.setDate(currentSunday.getDate() + 6);
+
+      weeksToInsert.push({
+        week_number: w,
+        year: targetYear,
+        start_date: formatDateStr(currentMonday),
+        end_date: formatDateStr(currentSunday)
+      });
+
+      currentMonday = new Date(currentSunday);
+      currentMonday.setDate(currentMonday.getDate() + 1);
+    }
+
+    // Semana 53: Caso sobrem dias até 31 de dezembro
+    const lastDayOfYear = new Date(targetYear, 11, 31);
+    if (currentSunday < lastDayOfYear) {
+      let week53Monday = new Date(currentSunday);
+      week53Monday.setDate(week53Monday.getDate() + 1);
+
+      weeksToInsert.push({
+        week_number: 53,
+        year: targetYear,
+        start_date: formatDateStr(week53Monday),
+        end_date: formatDateStr(lastDayOfYear)
+      });
+    }
+
+    await supabase.from('weeks').insert(weeksToInsert);
+  };
+
+  // 3. Buscar e Garantir Semanas Atuais e Futuras
   useEffect(() => {
     if (session) {
-      fetchWeeks();
+      const initWeeks = async () => {
+        const currentYear = new Date().getFullYear();
+        await generateWeeksForYear(currentYear);
+        await generateWeeksForYear(currentYear + 1);
+        fetchWeeks();
+      };
+      initWeeks();
     }
   }, [session]);
 
   const fetchWeeks = async () => {
-    const { data, error } = await supabase.from('weeks').select('*').order('week_number', { ascending: true });
+    const currentYear = new Date().getFullYear();
+    const { data, error } = await supabase.from('weeks').select('*').eq('year', currentYear).order('year', { ascending: true }).order('week_number', { ascending: true }).range(0, 150);
     if (!error) setWeeks(data);
   };
 
-  // 3. Carregar Dados da Semana Selecionada
+  // 4. Carregar Dados da Semana Selecionada
   useEffect(() => {
     if (selectedWeek && session?.user?.id) {
       fetchItems();
@@ -211,7 +286,7 @@ export default function App() {
   };
 
   // Tratar o fim do movimento de arrastar (Restrito à mesma categoria) 🔄
-const handleDragEnd = async (event) => {
+  const handleDragEnd = async (event) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -226,7 +301,6 @@ const handleDragEnd = async (event) => {
     ) {
       const categoryType = activeItem.item_type;
 
-      // 1. Pega os itens atuais daquela categoria exata ordenados pela posição
       const groupItems = items.filter(
         (i) => i.category === activeTab && i.item_type === categoryType
       ).sort((a, b) => (a.position || 0) - (b.position || 0));
@@ -234,14 +308,11 @@ const handleDragEnd = async (event) => {
       const oldIndex = groupItems.findIndex((item) => item.id === active.id);
       const newIndex = groupItems.findIndex((item) => item.id === over.id);
 
-      // 2. Reordena usando o arrayMove do dnd-kit de forma limpa
       const reorderedGroup = arrayMove(groupItems, oldIndex, newIndex);
 
-      // 3. Atualiza o estado global mantendo as outras categorias intactas
       const updatedItems = items.map((item) => {
         if (item.category === activeTab && item.item_type === categoryType) {
           const foundIndex = reorderedGroup.findIndex((g) => g.id === item.id);
-          // Se encontrou no grupo reordenado, atualiza a posição nova. Senão, mantém o item.
           return foundIndex !== -1 ? { ...item, position: foundIndex } : item;
         }
         return item;
@@ -249,7 +320,6 @@ const handleDragEnd = async (event) => {
 
       setItems(updatedItems);
 
-      // 4. Salva a nova sequência correta no Supabase
       for (let index = 0; index < reorderedGroup.length; index++) {
         await supabase
           .from('list_items')
@@ -270,7 +340,6 @@ const handleDragEnd = async (event) => {
     e.preventDefault();
     if (!newItemName.trim()) return;
 
-    // Calcula a próxima posição dentro da categoria selecionada
     const groupItems = items.filter(
       (i) => i.category === activeTab && i.item_type === itemType
     );
@@ -391,7 +460,7 @@ const handleDragEnd = async (event) => {
           </button>
           <div className="text-right">
             <span className="font-bold text-slate-800 block">Semana {String(selectedWeek.week_number).padStart(2, '0')}</span>
-            <span className="text-xs text-slate-500">{formatDateBR(selectedWeek.start_date)} - {formatDateBR(selectedWeek.end_date)}</span>
+            <span className="text-xs text-slate-500">{formatDateBR(selectedWeek.start_date)} até {formatDateBR(selectedWeek.end_date)}</span>
           </div>
         </header>
 
@@ -432,7 +501,6 @@ const handleDragEnd = async (event) => {
                 <p className="text-center text-slate-400 text-sm py-8">Nenhum item adicionado nesta lista.</p>
               ) : (
                 CATEGORY_ORDER.map((typeKey) => {
-                  // Filtra os itens da categoria atual ordenados por posição
                   const groupItems = activeTabItems
                     .filter((i) => (i.item_type || 'alimentos') === typeKey)
                     .sort((a, b) => (a.position || 0) - (b.position || 0));
@@ -443,7 +511,6 @@ const handleDragEnd = async (event) => {
 
                   return (
                     <div key={typeKey} className="mb-5">
-                      {/* Título do Grupo/Categoria */}
                       <div className="flex items-center gap-2 mb-2 px-1">
                         {typeDetails.icon}
                         <h2 className={`font-semibold text-sm tracking-wide ${typeDetails.textColor}`}>
@@ -451,7 +518,6 @@ const handleDragEnd = async (event) => {
                         </h2>
                       </div>
 
-                      {/* Contexto de Drag & Drop para este Grupo */}
                       <SortableContext items={groupItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                         <div className="space-y-2">
                           {groupItems.map((item) => (
